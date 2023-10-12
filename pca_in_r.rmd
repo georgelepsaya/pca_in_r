@@ -1,0 +1,133 @@
+---
+title: "PCA in R"
+output: html_notebook
+---
+
+<details>
+  <summary>Function Docs Refresher</summary>
+
+- `matrix()`: creates a matrix from the given set of values
+  - we may provide no data (NA), and just specify `nrow = 5`, `ncol = 5`
+- `colnames(x)`: where `x` is a matrix-like R object, with at least two dimensions for colnames
+- `paste0()`: concatenate vectors after converting to character
+- `sample(x, size, replace, prob)`: takes a sample of the specified size from the elements of `x` using either with or without replacement
+  - `x`: a vector of values from which the sample will be drawn
+  - `n`: a positive number, the number of items to choose from
+  - `size`: number of items to draw from `x`
+  - `replace`: should sampling be with replacement?
+  - `prob`: a vector of probability weights for obtaining the elements of the vector being sampled
+  - Example:
+    - `x = 10:1000`: This creates a sequence of numbers starting from 10 and ending at 1000. So, x is a vector containing numbers [10, 11, 12, ..., 1000]
+    - `size = 1`: This means we want to draw one number from the sequence 10:1000
+    - Given these parameters, sample() will randomly select one value from the sequence of numbers between 10 and 1000 (inclusive).
+- `rpois(n, lambda)`:
+
+</details>
+
+
+### What we cover:
+1. How to use the `prcomp()` function to do PCA
+2. How to draw a PCA plot using *base graphics* and *ggplot2*
+3. How to determine how much variation each principal component accounts for
+4. How to examine the loading scores to determine what variables have the largest effect on the graph
+
+### Generate a dataset
+First, let's generate a fake dataset that we can use in the demonstration
+
+- `wt` - wild type - samples are the normal, every day samples
+- `ko` - knock-out - samples are samples that are missing a gene because we knocked it out
+
+```{r}
+data.matrix <- matrix(nrow = 100, ncol = 10)
+
+# name the samples
+colnames(data.matrix) <- c( # combines the two vectors, assign them as clumn names
+  paste0("wt", 1:5), # creates wt1...wt5
+  paste0("ko", 1:5) # creates ko1...ko5
+)
+
+# name the genes
+rownames(data.matrix) <- paste0("gene", 1:100)
+
+# give the fake genes fake read counts
+for (i in 1:100) {
+  wt.values <- rpois(5, lambda = sample(x = 10:1000, size = 1))
+  ko.values <- rpois(5, lambda = sample(x = 10:1000, size = 1))
+
+  data.matrix[i,] <- c(wt.values, ko.values)
+}
+
+head(data.matrix)
+```
+
+### Doing PCA
+
+- The goal is to draw a graph to show how the samples are related (or not related) to each other
+- By default `prcomp()` expects the samples to be rows and the genes to be columns
+- Since the samples in our data matrix are columns, and the genes (variables) are rows we have to transpose the matrix using the `t()` function
+- `prcomp()` returns three things:
+  1. `x`
+    Contains the principal components (PCs) for drawing a graph. Here we are using the first two columns in `x` to draw a 2-D plot that uses the first two PCs. Even though overall there are 10 PCs (since there are 10 samples).
+    The first PC accounts for the most variation in the original data, the second PC for the second most and so on. We use frst two PCs to plot a 2D PCA graph. However, sometimes we use PC2 and PC3.
+  2. `sdev`
+     Stands for "standard deviation". We use it to calculate how much variation in the original data each principal component accounts for.
+  3. `rotation`
+
+- PC1 is on the x-axis, because it is the first column in `x`
+- PC2 is on the y-axis
+
+To get a sense of how meaningful these clusters are, let's see how much variation in the original data PC1 accounts for. For that we use the square of `sdev`.
+
+Looking at the plot with calculated variations we can see that PC1 accounts for almost all the data variation in the data. This means that there is a big difference between those two clusters.
+
+Breakdown of `ggplot()`:
+
+1. Pass in the `pca.data` dataframe and tell **ggplot** which columns contain the X and Y coordinates and which column has the sample labels
+2. `geom_text()` - plot the labels, rather than dots or some other shape
+3. `xlab()` and `ylab()` to add X and Y axis labels.
+
+Lastly, let's look at how to use **loading scores** to determine which genes have the largest effect on where samples are plotted in the PCA plot.
+
+- There are loading scores for each PC
+- We are going to look at the loading scores of PC1, because it accounts for 92% of the variation in the data
+- Genes that push samples to the left of the graph will have large negative values and genes that push samples to the right will have large positive values
+- Since we're interested in both sets of genes, we'll use the `abs()` function to sort based on the number's magnitude rather than from high to low
+
+```{r}
+pca <- prcomp(t(data.matrix), scale = TRUE)
+plot(pca$x[,1], pca$x[,2])
+
+# Calculate variation
+pca.var <- pca$sdev^2
+
+# Calculate the percentages
+pca.var.per <- round(pca.var/sum(pca.var)*100, 1)
+
+# Plot the percentages
+barplot(pca.var.per, main = "Scree plot", xlab = "Principal Component", ylab = "Percentage Variation")
+
+library(ggplot2)
+
+pca.data <- data.frame(Sample=rownames(pca$x),
+                       X=pca$x[,1],
+                       Y=pca$x[,2])
+pca.data
+
+ggplot(data = pca.data, aes(x=X, y=Y, label=Sample)) +
+        geom_text() +
+        xlab(paste0("PC1 - ", pca.var.per[1], "%")) +
+        ylab(paste0("PC2 - ", pca.var.per[2], "%")) +
+        theme_bw() +
+        ggtitle("PCA Graph")
+
+# Loadinf scores
+loading_scores <- pca$rotation[,1]
+gene_scores <- abs(loading_scores)
+gene_scores_ranked <- sort(gene_scores, decreasing = TRUE)
+top_10_genes <- names(gene_scores_ranked[1:10])
+
+top_10_genes
+
+pca$rotation[top_10_genes, 1] # show the scores (now with +/- sign)
+```
+
